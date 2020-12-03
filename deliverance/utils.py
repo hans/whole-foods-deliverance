@@ -116,7 +116,9 @@ def wait_for_element(driver, locators, **kwargs):
     return wait_for_elements(driver, locators, **kwargs)[0]
 
 
-def get_element_text(element):
+def get_element_text(element, xpath=None):
+    if xpath is not None:
+        element = element.find_element_by_xpath(xpath)
     return element.get_attribute('innerText').strip()
 
 

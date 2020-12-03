@@ -1,16 +1,21 @@
+import csv
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
+
+from pint import UnitRegistry
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-from config import SiteConfig, SlotLocators, INTERVAL, NAV_TIMEOUT
+from config import SiteConfig, SlotLocators, INTERVAL, NAV_TIMEOUT, UNIT_REGISTRY, UNIT_STRING_REPLACEMENTS, Patterns
 from .elements import SlotElement, SlotElementMulti, PaymentRow, CartItem
 from .exceptions import Redirect, RouteRedirect, NavigationException
+from .models import ShoppingListItem
 from .redirect import wait_for_auth, handle_redirect
 from .notify import alert, annoy, send_sms, send_telegram
 from .utils import (wait_for_elements, wait_for_element, remove_qs, dump_toml,
-                    conf_dependent, jitter, click_when_enabled)
+                    conf_dependent, jitter, click_when_enabled, get_element_text)
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +107,9 @@ class Browser:
         self.executor = None
         self.slot_type = None
         self.build_routes()
+
+        # TODO custom units
+        self.ureg = UNIT_REGISTRY
 
     @property
     def current_url(self):
@@ -282,6 +290,50 @@ class Browser:
         else:
             dump_toml({'items': removed}, 'removed_items')
 
+    def shop_cart(self):
+        """Fill a cart based on a cart CSV."""
+        list_items = []
+        with self.args.shop_cart.open("r") as list_f:
+            for row in csv.reader(list_f):
+                list_items.append(ShoppingListItem(*row))
+
+        for item in list_items:
+            self.search_and_add_item(item)
+
+    def search_and_add_item(self, item: ShoppingListItem):
+        # TODO item name transforms
+        search_term = item.name
+        self.driver.get(self.site_config.search_endpoint(search_term))
+
+        # Analyze results.
+        for result_item in self.driver.find_elements(*self.Locators.SEARCH_RESULT):
+            result_name = get_element_text(result_item, ".//h2/a/span")
+            result_price = get_element_text(result_item, ".//span[@class='a-price']/span[@class='a-offscreen']")
+
+            result_units = None
+            # Preprocess title before attempting to find units
+            result_name_for_units = result_name.lower()
+            for search, repl in UNIT_STRING_REPLACEMENTS:
+                result_name_for_units = re.sub(search, repl, result_name_for_units)
+
+            for amount, unit in Patterns.UNIT_PATTERN.findall(result_name_for_units):
+                result_units_str = f"{amount} {unit}"
+                try:
+                    result_units = self.ureg.parse_expression(result_units_str)
+                except Exception as e:
+                    log.warning(f"Failed to parse unit string '{result_units_str}'", exc_info=e)
+
+            print(result_name, result_price, result_units)
+            # TODO do something with this. For now, we'll just wait for
+            # something to be added to the cart, or for an override signal to be
+            # given.
+
+            # TODO find out how to measure when something was added to the cart
+            # Or alternatively insert a prompt that the user clicks when they're finished with the item
+            
+        WebDriverWait(self.driver, 5)
+        raise RuntimeError()
+
     def save_cart(self):
         jitter(.4)
         self.driver.get(self.site_config.BASE_URL
@@ -301,6 +353,13 @@ class Browser:
 
     def main_loop(self):
         wait_for_auth(self)
+
+        if self.args.shop_cart:
+            try:
+                self.shop_cart()
+            except Exception as e:
+                raise RuntimeError("Failed to shop cart") from e
+
         if self.args.save_cart:
             try:
                 self.save_cart()

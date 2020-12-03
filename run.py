@@ -1,6 +1,8 @@
 import argparse
 import logging
+from pathlib import Path
 from time import sleep
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import WebDriverException
@@ -27,6 +29,8 @@ parser.add_argument('--no-import', action='store_true',
                     help="Don't import chromedriver_binary. Set this flag "
                          "if using an existing chromedriver in $PATH")
 parser.add_argument('--debug', action='store_true')
+parser.add_argument('--shop-cart', type=Path,
+                    help="Auto-fill cart using this cart spec")
 
 
 if __name__ == '__main__':

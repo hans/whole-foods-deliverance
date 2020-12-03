@@ -1,3 +1,7 @@
+import re
+
+from pint import UnitRegistry
+import requests
 from selenium.webdriver.common.by import By
 import toml
 
@@ -21,6 +25,16 @@ VALID_SERVICES = [
     'Amazon Fresh'
 ]
 
+UNIT_REGISTRY = UnitRegistry()
+# Load default unit additions
+UNIT_REGISTRY.load_definitions("units.txt")
+# TODO custom overrides
+
+# Replacements to perform on an item title before unit parsing
+UNIT_STRING_REPLACEMENTS = [
+    ("(?i)fl ozs?", "fluid_ounce"),
+    ("(?i)365 everyday", ""),
+]
 
 class Patterns:
     AUTH_URL = BASE_URL + 'ap/'
@@ -29,6 +43,15 @@ class Patterns:
     OOS = "This item is no longer available"
     THROTTLE_URL = 'throttle.html'
     NO_SLOTS_MULTI = "No.*delivery windows are available"
+    SEARCH_PATTERN = "https://www.amazon.com/s?k={term}&i={service}&ref=nb_sb_noss_2"
+
+    # Sort by length so that we get the longest applicable unit string for the parser
+    _unit_strings = sorted(
+        [unit + suffix for unit in UNIT_REGISTRY._units.keys()
+         for suffix in UNIT_REGISTRY._suffixes.keys()],
+         reverse=True, key=len)
+    UNIT_PATTERN = re.compile(
+        f"(?i)(\d+(?:\.\d+)?)\s*({{0}})".format("|".join(_unit_strings)))
 
 
 class Locators:
@@ -40,6 +63,8 @@ class Locators:
     THROTTLE_CONTINUE = (By.XPATH, "//*[contains(@id, 'throttle') and "
                                    "@role='button']")
     PAYMENT_ROW = (By.XPATH, "//*[starts-with(@class, 'payment-row')]")
+
+    SEARCH_RESULT = (By.XPATH, "//div[@id='search']//*[@data-asin!='']")
 
 
 class SlotLocators:
@@ -132,3 +157,10 @@ class SiteConfig:
             return 'cart/fresh'
         else:
             return 'cart/localmarket'
+
+    def search_endpoint(self, search_term):
+        search_term = requests.utils.quote(search_term)
+        if self.service == "Whole Foods":
+            return Patterns.SEARCH_PATTERN.format(term=search_term, service="wholefoods")
+        elif self.service == "Amazon Fresh":
+            return Patterns.SEARCH_PATTERN.format(term=search_term, service="amazonfresh")

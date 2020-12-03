@@ -1,0 +1,24 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+
+[packages]
+certifi = "*"
+chardet = "*"
+chromedriver-binary = "==87.0.4280.88.0"
+idna = "*"
+pytz = "*"
+requests = "*"
+selenium = "*"
+six = "*"
+toml = "*"
+twilio = "*"
+urllib3 = "*"
+PyJWT = "*"
+pint = "*"
+
+[requires]
+python_version = "3.7"
