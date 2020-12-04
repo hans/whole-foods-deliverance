@@ -1,4 +1,5 @@
 import csv
+import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -12,7 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from config import SiteConfig, SlotLocators, INTERVAL, NAV_TIMEOUT, UNIT_REGISTRY, UNIT_STRING_REPLACEMENTS, Patterns
 from .elements import SlotElement, SlotElementMulti, PaymentRow, CartItem
 from .exceptions import Redirect, RouteRedirect, NavigationException
-from .models import ShoppingListItem
+from .models import ShoppingListItem, AmazonItem
 from .redirect import wait_for_auth, handle_redirect
 from .notify import alert, annoy, send_sms, send_telegram
 from .utils import (wait_for_elements, wait_for_element, remove_qs, dump_toml,
@@ -109,7 +110,6 @@ class Browser:
         self.slot_type = None
         self.build_routes()
 
-        # TODO custom units
         self.ureg = UNIT_REGISTRY
 
     @property
@@ -307,9 +307,14 @@ class Browser:
         self.driver.get(self.site_config.search_endpoint(search_term))
 
         # Analyze results.
+        result_items = []
         for result_item in self.driver.find_elements(*self.Locators.SEARCH_RESULT):
             result_name = get_element_text(result_item, ".//h2/a/span")
-            result_price = get_element_text(result_item, ".//span[@class='a-price']/span[@class='a-offscreen']")
+            result_asin = result_item.get_attribute("data-asin")
+            try:
+                result_price = float(get_element_text(result_item, ".//span[@class='a-price']/span[@class='a-offscreen']").replace("$", ""))
+            except:
+                result_price = None
 
             result_units = None
             # Preprocess title before attempting to find units
@@ -324,13 +329,15 @@ class Browser:
                 except Exception as e:
                     log.warning(f"Failed to parse unit string '{result_units_str}'", exc_info=e)
 
-            print(result_name, result_price, result_units)
-            # TODO do something with this. For now, we'll just wait for
-            # something to be added to the cart, or for an override signal to be
-            # given.
+            result_items.append(AmazonItem(result_name, result_asin, result_price, result_units))
 
-            # TODO find out how to measure when something was added to the cart
-            # Or alternatively insert a prompt that the user clicks when they're finished with the item
+        # Sort items by compatibility score.
+        result_items = sorted(result_items, key=lambda result_item: item.compatibility_score(result_item))
+        for ri in result_items:
+            compat = item.compatibility_score(ri)
+            print(compat, ri)
+
+        # TODO reorder results by the computed order
 
         # Inject an overlay which prompts the user to select an item and
         # waits for a button in the overlay to be clicked.
