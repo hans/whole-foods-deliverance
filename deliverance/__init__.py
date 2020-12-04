@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from pint import UnitRegistry
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
@@ -330,9 +331,32 @@ class Browser:
 
             # TODO find out how to measure when something was added to the cart
             # Or alternatively insert a prompt that the user clicks when they're finished with the item
-            
-        WebDriverWait(self.driver, 5)
-        raise RuntimeError()
+
+        # Inject an overlay which prompts the user to select an item and
+        # waits for a button in the overlay to be clicked.
+        overlay_html = """
+<div style='z-index: 999; position: absolute; top: 5px; left: 5px; width: 400px; height: 100px; padding: 5px; background-color: #eee; border: 1px solid #ccc;'>
+<p>Please select an item and press Continue.</p>
+<p>
+    <button id='wfd_continueButton'>Continue</button>
+    <input type='hidden' id='wfd_continueReady' value='false' />
+</p>
+</div>
+""".replace("\n", "")
+        overlay_inject_js = f"""
+var ijd = document.createElement('div');
+ijd.innerHTML = "{overlay_html}";
+document.body.appendChild(ijd);
+
+// TODO setTimeout necessary?
+document.getElementById('wfd_continueButton').onclick = function() {{
+    document.getElementById('wfd_continueReady').value = 'true';
+}}
+"""
+        self.driver.execute_script(overlay_inject_js)
+
+        # TODO track whether the search was successful; retain this information in the containing cart
+        WebDriverWait(self.driver, 1000).until(EC.text_to_be_present_in_element_value((By.ID, "wfd_continueReady"), "true"))
 
     def save_cart(self):
         jitter(.4)
