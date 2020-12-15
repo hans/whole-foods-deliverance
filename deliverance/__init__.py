@@ -3,6 +3,7 @@ import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
+from typing import List, Tuple
 
 from pint import UnitRegistry
 from selenium.common.exceptions import TimeoutException
@@ -11,13 +12,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from config import SiteConfig, SlotLocators, INTERVAL, NAV_TIMEOUT, UNIT_REGISTRY, UNIT_STRING_REPLACEMENTS, Patterns
-from .elements import SlotElement, SlotElementMulti, PaymentRow, CartItem
+from .elements import SlotElement, SlotElementMulti, PaymentRow, CartItem, FlyoutCartItem
 from .exceptions import Redirect, RouteRedirect, NavigationException
-from .models import ShoppingListItem, AmazonItem
+from .models import ShoppingListItem, AmazonItem, diff_carts
 from .redirect import wait_for_auth, handle_redirect
 from .notify import alert, annoy, send_sms, send_telegram
 from .utils import (wait_for_elements, wait_for_element, remove_qs, dump_toml,
-                    conf_dependent, jitter, click_when_enabled, get_element_text)
+                    conf_dependent, jitter, click_when_enabled, get_element_text,
+                    no_ewc_spinner,
+                    parse_units)
 
 log = logging.getLogger(__name__)
 
@@ -291,17 +294,28 @@ class Browser:
         else:
             dump_toml({'items': removed}, 'removed_items')
 
-    def shop_cart(self):
+    def shop_cart(self) -> List[Tuple[ShoppingListItem, List[AmazonItem]]]:
         """Fill a cart based on a cart CSV."""
         list_items = []
         with self.args.shop_cart.open("r") as list_f:
             for row in csv.reader(list_f):
                 list_items.append(ShoppingListItem(*row))
 
+        cart_history = []
         for item in list_items:
-            self.search_and_add_item(item)
+            chosen_items = self.search_and_add_item(item)
+            cart_history.append((item, chosen_items))
 
-    def search_and_add_item(self, item: ShoppingListItem):
+        return cart_history
+
+    def search_and_add_item(self, item: ShoppingListItem) -> List[AmazonItem]:
+        """
+        Search for an item on the shopping list and allow the user to add
+        item(s) to the cart. After adding is complete, the user signals and this
+        function returns. Returns a list of `AmazonItem`s which were added to
+        the cart.
+        """
+
         # TODO item name transforms
         search_term = item.name
         self.driver.get(self.site_config.search_endpoint(search_term))
@@ -316,18 +330,7 @@ class Browser:
             except:
                 result_price = None
 
-            result_units = None
-            # Preprocess title before attempting to find units
-            result_name_for_units = result_name.lower()
-            for search, repl in UNIT_STRING_REPLACEMENTS:
-                result_name_for_units = re.sub(search, repl, result_name_for_units)
-
-            for amount, unit in Patterns.UNIT_PATTERN.findall(result_name_for_units):
-                result_units_str = f"{amount} {unit}"
-                try:
-                    result_units = self.ureg.parse_expression(result_units_str)
-                except Exception as e:
-                    log.warning(f"Failed to parse unit string '{result_units_str}'", exc_info=e)
+            result_units = parse_units(result_name)
 
             result_items.append(AmazonItem(result_name, result_asin, result_price, result_units))
 
@@ -360,13 +363,43 @@ document.getElementById('wfd_continueButton').onclick = function() {{
     document.getElementById('wfd_continueReady').value = 'true';
 }}
 """
+
+        # Save the cart contents.
+        cart_snapshot = self.snapshot_flyout_cart()
+
         self.driver.execute_script(overlay_inject_js)
 
         # TODO track whether the search was successful; retain this information in the containing cart
-        WebDriverWait(self.driver, 1000).until(EC.text_to_be_present_in_element_value((By.ID, "wfd_continueReady"), "true"))
+        WebDriverWait(self.driver, 1000).until(
+            EC.text_to_be_present_in_element_value((By.ID, "wfd_continueReady"), "true"))
+
+        # Diff with the snapshotted cart contents, and update the shopping list
+        # item record.
+        new_cart_snapshot = self.snapshot_flyout_cart()
+
+        return diff_carts(cart_snapshot, new_cart_snapshot)
+
+    def snapshot_flyout_cart(self):
+        """
+        Read current cart from nav flyout.
+        """
+        try:
+            self.driver.find_element(*self.Locators.CART_FLYOUT_CONTENT)
+        except Exception as e:
+            raise RuntimeError("Could not find cart flyout on page") from e
+
+        # Wait for the cart to reload.
+        WebDriverWait(self.driver, 1000).until(no_ewc_spinner)
+
+        items = self.driver.find_elements(*self.Locators.CART_FLYOUT_ITEM)
+        # Extract and store cart information
+        snapshot = [AmazonItem.from_cart_item(FlyoutCartItem(i)) for i in items]
+
+        return snapshot
 
     def save_cart(self):
         jitter(.4)
+
         self.driver.get(self.site_config.BASE_URL
                         + self.site_config.cart_endpoint)
         cart = []
@@ -387,9 +420,14 @@ document.getElementById('wfd_continueButton').onclick = function() {{
 
         if self.args.shop_cart:
             try:
-                self.shop_cart()
+                cart_history = self.shop_cart()
             except Exception as e:
                 raise RuntimeError("Failed to shop cart") from e
+
+            from pprint import pprint
+            pprint(cart_history)
+
+        raise RuntimeError()
 
         if self.args.save_cart:
             try:

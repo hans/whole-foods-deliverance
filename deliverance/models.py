@@ -1,10 +1,11 @@
-from collections import namedtuple
-import re
+from copy import deepcopy
+from typing import List
 
 import numpy as np
 from pint import Quantity
 
-from config import UNIT_REGISTRY, UNIT_STRING_REPLACEMENTS
+from .elements import FlyoutCartItem
+from .utils import parse_units
 
 
 class ShoppingListItem(object):
@@ -13,13 +14,7 @@ class ShoppingListItem(object):
         self.name = name
 
         self.quantity_str = quantity_str
-        self.quantity = None
-        try:
-            for search, repl in UNIT_STRING_REPLACEMENTS:
-                quantity_str = re.sub(search, repl, quantity_str)
-            self.quantity = UNIT_REGISTRY.parse_expression(quantity_str)
-        except:
-            pass
+        self.quantity = parse_units(quantity_str)
 
     def compatibility_score(self, item: "AmazonItem"):
         """
@@ -33,7 +28,7 @@ class ShoppingListItem(object):
         # Integer amount of the item we'd need to buy.
         need_n_of_item = 1
 
-        print(self.quantity, item.quantity)
+        print(self.name, self.quantity, '//', item.name, item.quantity)
         if self.quantity is not None and item.quantity is not None:
             # Compute difference in quantity in terms of our units.
             quantity_diff = item.quantity - self.quantity
@@ -60,16 +55,42 @@ class ShoppingListItem(object):
         return score
 
 
-
 class AmazonItem(object):
 
-    def __init__(self, name, asin: str, price, quantity: Quantity):
+    def __init__(self, name, asin: str, price, quantity: Quantity, multiples=1):
         self.name = name
         self.asin = asin
         self.price = price
         self.quantity = quantity
+        self.multiples = multiples
+
+    @classmethod
+    def from_cart_item(cls, item: FlyoutCartItem):
+        return cls(name=item.name, asin=item.product_id, price=item.price,
+                   quantity=parse_units(item.name), multiples=item.quantity)
 
     def __repr__(self):
-        return f"AmazonItem(\"{self.name}\", {self.asin}, {self.price}, {self.quantity})"
+        multiple_str = f"{self.multiples} * " if self.multiples != 1 else ""
+        return f"AmazonItem({multiple_str}\"{self.name}\", {self.asin}, {self.price}, {self.quantity})"
 
     __str__ = __repr__
+
+    def __hash__(self):
+        # NB Pint Quantity instanes are not hashable
+        return hash((self.asin, repr(self.quantity), self.multiples))
+
+    def __eq__(self, other):
+        return isinstance(other, AmazonItem) and hash(self) == hash(other)
+
+
+def diff_carts(c1: List[AmazonItem], c2: List[AmazonItem]) -> List[AmazonItem]:
+    # # Convert to set representation with multiples as part of the element,
+    # # so that we can catch increments of existing cart items
+    # c1_set = set()
+    new_items = set(c2) - set(c1)
+    missing_items = set(c1) - set(c2)
+
+    # TODO handle incremented quantities of existing items -- index each set by
+    # ASIN and see if there are matches.
+
+    return list(new_items)

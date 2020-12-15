@@ -164,6 +164,30 @@ class CartItem(WebElement):
         }
 
 
+class FlyoutCartItem(WebElement):
+    STR_XPATH = [".//*[contains(@class, 'ewc-item-title-row')]/a/@title"]
+    STR_SEP = ""
+
+    @property
+    def name(self):
+        return self.find_child(".//*[contains(@class, 'ewc-item-title-row')]/a").get_attribute("title")
+
+    @property
+    def product_id(self):
+        return self._element.get_attribute("data-asin")
+
+    @property
+    def price(self):
+        return self._element.get_attribute("data-price")
+
+    @property
+    def quantity(self):
+        return int(self._element.get_attribute("data-qty"))
+
+    def __repr__(self):
+        return f"{self.name}, {self.price}"
+
+
 class PaymentRow(WebElement):
     @property
     def card_number(self):

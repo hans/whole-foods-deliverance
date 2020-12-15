@@ -34,6 +34,7 @@ UNIT_REGISTRY.load_definitions("units.txt")
 UNIT_STRING_REPLACEMENTS = [
     ("(?i)fl ozs?", "fluid_ounce"),
     ("(?i)365 everyday", ""),
+    ("(?i)365 by Whole Foods", ""),
 ]
 
 class Patterns:
@@ -51,7 +52,7 @@ class Patterns:
          for suffix in UNIT_REGISTRY._suffixes.keys()],
          reverse=True, key=len)
     UNIT_PATTERN = re.compile(
-        f"(?i)(\d+(?:\.\d+)?)\s*({{0}})".format("|".join(_unit_strings)))
+        f"(?i)(\d+(?:\.\d+)?)\s*({{0}})\\b".format("|".join(_unit_strings)))
 
 
 class Locators:
@@ -65,6 +66,12 @@ class Locators:
     PAYMENT_ROW = (By.XPATH, "//*[starts-with(@class, 'payment-row')]")
 
     SEARCH_RESULT = (By.XPATH, "//div[@id='search']//*[@data-asin!='']")
+
+    CART_FLYOUT = (By.ID, "nav-flyout-ewc")
+    CART_FLYOUT_CONTENT = (By.XPATH, "//*[@id='nav-flyout-ewc']//*[contains(@class, 'nav-ewc-content')]")
+    CART_FLYOUT_ITEM = (By.XPATH, "//div[@id='nav-flyout-ewc']//*[contains(concat(' ', @class, ' '), ' ewc-item ')]")
+
+    EWC_SPINNER = (By.ID, "ewc-spinner")
 
 
 class SlotLocators:
