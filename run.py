@@ -29,8 +29,11 @@ parser.add_argument('--no-import', action='store_true',
                     help="Don't import chromedriver_binary. Set this flag "
                          "if using an existing chromedriver in $PATH")
 parser.add_argument('--debug', action='store_true')
+
 parser.add_argument('--shop-cart', type=Path,
                     help="Auto-fill cart using this cart spec")
+parser.add_argument('--shop-cart-save', type=Path,
+                    help="Save information about chosen items for each autoshop list item to this path")
 
 
 if __name__ == '__main__':

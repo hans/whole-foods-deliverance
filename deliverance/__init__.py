@@ -424,8 +424,33 @@ document.getElementById('wfd_continueButton').onclick = function() {{
             except Exception as e:
                 raise RuntimeError("Failed to shop cart") from e
 
-            from pprint import pprint
-            pprint(cart_history)
+            # TODO also account for items which somehow appear in cart without
+            # associated shopping list item
+
+            history_json = {
+                "items": [
+                    {
+                        "name": item.name,
+                        "quantity_str": item.quantity_str,
+                        "quantity": str(item.quantity) if item.quantity is not None else None,
+                        "chosen_items": [
+                            {
+                                "name": aitem.name,
+                                "asin": aitem.asin,
+                                "price": aitem.price,
+                                "quantity": str(aitem.quantity) if aitem.quantity is not None else None,
+                                "multiples": aitem.multiples
+                            }
+                            for aitem in chosen_items
+                        ]
+                    }
+                    for item, chosen_items in cart_history
+                ]
+            }
+
+            if self.args.shop_cart_save:
+                with self.args.shop_cart_save.open("w") as cart_f:
+                    json.dump(history_json, cart_f)
 
         raise RuntimeError()
 
